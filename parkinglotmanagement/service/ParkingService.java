@@ -17,7 +17,7 @@ public class ParkingService {
     private FineStrategy fineStrategy = new FixedFineStrategy();
 
     public ParkingService() {
-        // Build a simple default lot: 2 floors, mix of spots (edit as needed)
+        // Default lot: 2 floors. Edit counts/rates/types as you like.
         Floor f1 = new Floor(1);
         f1.addSpot(new ParkingSpot("F1-C1", SpotType.COMPACT));
         f1.addSpot(new ParkingSpot("F1-R1", SpotType.REGULAR));
@@ -62,7 +62,7 @@ public class ParkingService {
 
         ParkingSpot spot = findAvailableSpotFor(vehicle);
         if (spot == null) {
-            throw new IllegalStateException("No available spot for vehicle type.");
+            throw new IllegalStateException("No available spot for this vehicle type.");
         }
 
         spot.assignVehicle(vehicle);
@@ -83,14 +83,13 @@ public class ParkingService {
         long hoursStayed = Math.max(1, Duration.between(ticket.getEntryTime(), exitTime).toHours());
         double parkingFee = hoursStayed * ticket.getSpot().getType().getHourlyRate();
 
-        double fine = fineStrategy.calculateFine(hoursStayed);
+        double fineAmt = fineStrategy.calculateFine(hoursStayed);
         Fine fineObj = null;
-        if (fine > 0) {
-            fineObj = new Fine(plateNumber, fine, "Over 24 hours stay", exitTime);
+        if (fineAmt > 0) {
+            fineObj = new Fine(plateNumber, fineAmt, "Over 24 hours stay", exitTime);
             fines.add(fineObj);
         }
 
-        // Free the spot
         ticket.getSpot().removeVehicle();
         activeTicketsByPlate.remove(plateNumber);
 
@@ -108,12 +107,11 @@ public class ParkingService {
         return null;
     }
 
-    // Small DTO for exit results
     public static class ExitResult {
         public final Ticket ticket;
         public final long hoursStayed;
         public final double parkingFee;
-        public final Fine fine; // may be null
+        public final Fine fine; // nullable
 
         public ExitResult(Ticket ticket, long hoursStayed, double parkingFee, Fine fine) {
             this.ticket = ticket;

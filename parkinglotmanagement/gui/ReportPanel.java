@@ -44,7 +44,7 @@ public class ReportPanel extends JPanel {
 
     private void renderParkedVehicles() {
         StringBuilder sb = new StringBuilder();
-        sb.append("=== PARKED VEHICLES REPORT ===\n\n");
+        sb.append(" PARKED VEHICLES REPORT \n\n");
 
         List<Ticket> tickets = reportService.getCurrentlyParkedTickets();
         if (tickets.isEmpty()) {
@@ -65,7 +65,7 @@ public class ReportPanel extends JPanel {
         ReportService.OccupancySummary occ = reportService.getOccupancySummary();
 
         StringBuilder sb = new StringBuilder();
-        sb.append("=== OCCUPANCY REPORT ===\n\n");
+        sb.append("OCCUPANCY REPORT\n\n");
         sb.append("Overall Occupancy: ").append(occ.occupied).append("/").append(occ.total)
                 .append(" (").append(String.format("%.1f%%", occ.occupancyRate())).append(")\n\n");
 
@@ -83,7 +83,7 @@ public class ReportPanel extends JPanel {
         ReportService.RevenueSummary rev = reportService.getRevenueSummary();
 
         StringBuilder sb = new StringBuilder();
-        sb.append("=== REVENUE REPORT ===\n\n");
+        sb.append("REVENUE REPORT\n\n");
         sb.append("Total Parking Fees: RM ").append(String.format("%.2f", rev.totalFees)).append("\n");
         sb.append("Total Fines Paid: RM ").append(String.format("%.2f", rev.totalFines)).append("\n");
         sb.append("TOTAL Revenue: RM ").append(String.format("%.2f", rev.totalRevenue)).append("\n");
@@ -95,7 +95,7 @@ public class ReportPanel extends JPanel {
         List<Fine> fines = reportService.getOutstandingFines();
 
         StringBuilder sb = new StringBuilder();
-        sb.append("=== OUTSTANDING FINES REPORT ===\n\n");
+        sb.append("OUTSTANDING FINES REPORT\n\n");
 
         if (fines.isEmpty()) {
             sb.append("No unpaid fines.\n");

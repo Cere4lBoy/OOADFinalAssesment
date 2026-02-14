@@ -2,202 +2,126 @@ package service;
 
 import model.*;
 import strategy.FineStrategy;
+import strategy.FixedFineStrategy;
+
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.*;
 
 public class ParkingService {
-    
-    private ParkingLot parkingLot;
-    private PaymentService paymentService;
-    private Map<String, Ticket> activeTickets;  // plateNumber -> Ticket
-    private List<Fine> allFines;                 // All fines in system
-    
-    /**
-     * Constructor
-     * 
-     * @param parkingLot - The parking lot instance
-     */
-    public ParkingService(ParkingLot parkingLot) {
-        this.parkingLot = parkingLot;
-        this.paymentService = new PaymentService();
-        this.activeTickets = new HashMap<>();
-        this.allFines = new ArrayList<>();
+
+    private final List<Floor> floors = new ArrayList<>();
+    private final Map<String, Ticket> activeTicketsByPlate = new HashMap<>();
+    private final List<Fine> fines = new ArrayList<>();
+
+    private FineStrategy fineStrategy = new FixedFineStrategy();
+
+    public ParkingService() {
+        // Default lot: 2 floors. Edit counts/rates/types as you like.
+        Floor f1 = new Floor(1);
+        f1.addSpot(new ParkingSpot("F1-C1", SpotType.COMPACT));
+        f1.addSpot(new ParkingSpot("F1-R1", SpotType.REGULAR));
+        f1.addSpot(new ParkingSpot("F1-H1", SpotType.HANDICAPPED));
+        f1.addSpot(new ParkingSpot("F1-V1", SpotType.RESERVED));
+
+        Floor f2 = new Floor(2);
+        f2.addSpot(new ParkingSpot("F2-C1", SpotType.COMPACT));
+        f2.addSpot(new ParkingSpot("F2-R1", SpotType.REGULAR));
+        f2.addSpot(new ParkingSpot("F2-R2", SpotType.REGULAR));
+        f2.addSpot(new ParkingSpot("F2-V1", SpotType.RESERVED));
+
+        floors.add(f1);
+        floors.add(f2);
     }
-    
-    /**
-     * Process vehicle entry
-     * (Aleeya's responsibility - included for integration)
-     * 
-     * @param vehicle - Vehicle entering
-     * @param spot - Selected parking spot
-     * @return Ticket for the vehicle
-     */
-    public Ticket processEntry(Vehicle vehicle, ParkingSpot spot) {
-        // Create ticket
-        Ticket ticket = new Ticket(vehicle, spot);
-        
-        // Store active ticket
-        activeTickets.put(vehicle.getPlateNumber(), ticket);
-        
-        // Assign vehicle to spot
+
+    public void setFineStrategy(FineStrategy strategy) {
+        this.fineStrategy = strategy;
+    }
+
+    public FineStrategy getFineStrategy() {
+        return fineStrategy;
+    }
+
+    public List<Floor> getFloors() {
+        return floors;
+    }
+
+    public List<Fine> getFines() {
+        return fines;
+    }
+
+    public Collection<Ticket> getActiveTickets() {
+        return activeTicketsByPlate.values();
+    }
+
+    public Ticket parkVehicle(Vehicle vehicle) {
+        String plate = vehicle.getPlateNumber();
+        if (activeTicketsByPlate.containsKey(plate)) {
+            throw new IllegalStateException("Vehicle already parked: " + plate);
+        }
+
+        ParkingSpot spot = findAvailableSpotFor(vehicle);
+        if (spot == null) {
+            throw new IllegalStateException("No available spot for this vehicle type.");
+        }
+
         spot.assignVehicle(vehicle);
-        
+        String ticketId = "T-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase();
+        Ticket ticket = new Ticket(ticketId, vehicle, spot, vehicle.getEntryTime());
+
+        activeTicketsByPlate.put(plate, ticket);
         return ticket;
     }
-    
-    /**
-     * FLOW:
-     * 1. Find vehicle by license plate
-     * 2. Calculate duration (ceiling rounding)
-     * 3. Calculate parking fee
-     * 4. Get previous unpaid fines
-     * 5. Calculate new fine if overstayed (>24 hours)
-     * 6. Create payment (parking fee + all fines)
-     * 7. Mark all fines as paid
-     * 8. Release parking spot
-     * 9. Return payment with receipt
-     * 
-     * @param plateNumber - Vehicle's license plate
-     * @param paymentMethod - CASH or CARD
-     * @return Payment object containing receipt
-     * @throws Exception if vehicle not found
-     */
-    public Payment processExit(String plateNumber, PaymentMethod paymentMethod) throws Exception {
-        
-        // STEP 1: Find vehicle's ticket
-        Ticket ticket = activeTickets.get(plateNumber);
-        if (ticket == null) {
-            throw new Exception("Vehicle with plate " + plateNumber + " not found in parking lot");
-        }
-        
-        Vehicle vehicle = ticket.getVehicle();
-        ParkingSpot spot = ticket.getSpot();
-        LocalDateTime entryTime = ticket.getEntryTime();
+
+    public ExitResult exitVehicle(String plateNumber) {
+        Ticket ticket = activeTicketsByPlate.get(plateNumber);
+        if (ticket == null) throw new IllegalStateException("No active ticket for: " + plateNumber);
+
         LocalDateTime exitTime = LocalDateTime.now();
-        
-        // STEP 2: Calculate duration using PaymentService (ceiling rounding)
-        long hoursParked = paymentService.calculateDuration(entryTime, exitTime);
-        
-        // STEP 3: Calculate parking fee
-        double parkingFee = paymentService.calculateParkingFee(spot.getType(), hoursParked, vehicle);
-        
-        // STEP 4: Check for previous unpaid fines
-        double previousUnpaidFines = getUnpaidFinesForVehicle(plateNumber);
-        
-        // STEP 5: Check if vehicle overstayed (>24 hours) and calculate new fine
-        double newFine = 0;
-        if (hoursParked > 24) {
-            // Use the parking lot's fine strategy (Strategy Pattern)
-            FineStrategy fineStrategy = parkingLot.getFineStrategy();
-            newFine = fineStrategy.calculateFine(hoursParked);
-            
-            // Create and store the new fine
-            Fine fine = new Fine(plateNumber, newFine);
-            allFines.add(fine);
+        ticket.close(exitTime);
+
+        long hoursStayed = Math.max(1, Duration.between(ticket.getEntryTime(), exitTime).toHours());
+        double parkingFee = hoursStayed * ticket.getSpot().getType().getHourlyRate();
+
+        double fineAmt = fineStrategy.calculateFine(hoursStayed);
+        Fine fineObj = null;
+        if (fineAmt > 0) {
+            fineObj = new Fine(plateNumber, fineAmt, "Over 24 hours stay", exitTime);
+            fines.add(fineObj);
         }
-        
-        // STEP 6: Calculate total fines (previous + new)
-        double totalFines = previousUnpaidFines + newFine;
-        
-        // STEP 7: Create payment using PaymentService
-        Payment payment = paymentService.processPayment(
-            vehicle, 
-            entryTime, 
-            exitTime, 
-            spot.getType(), 
-            spot.getSpotId(), 
-            totalFines, 
-            paymentMethod
-        );
-        
-        // STEP 8: Mark all fines for this vehicle as paid
-        markFinesAsPaid(plateNumber);
-        
-        // STEP 9: Release the parking spot
-        spot.removeVehicle();
-        
-        // STEP 10: Remove ticket from active tickets
-        activeTickets.remove(plateNumber);
-        
-        // STEP 11: Add revenue to parking lot
-        parkingLot.addRevenue(payment.getTotalAmount());
-        
-        // STEP 12: Return payment (includes receipt generation)
-        return payment;
+
+        ticket.getSpot().removeVehicle();
+        activeTicketsByPlate.remove(plateNumber);
+
+        return new ExitResult(ticket, hoursStayed, parkingFee, fineObj);
     }
-    
-    /**
-     * Get total unpaid fines for a vehicle
-     * (Helper method for processExit)
-     * 
-     * @param plateNumber - Vehicle's plate
-     * @return Total unpaid fine amount
-     */
-    private double getUnpaidFinesForVehicle(String plateNumber) {
-        double total = 0;
-        for (Fine fine : allFines) {
-            if (fine.getPlateNumber().equals(plateNumber) && !fine.isPaid()) {
-                total += fine.getAmount();
+
+    private ParkingSpot findAvailableSpotFor(Vehicle vehicle) {
+        for (Floor floor : floors) {
+            for (ParkingSpot spot : floor.getSpots()) {
+                if (spot.isAvailable() && vehicle.canParkIn(spot.getType())) {
+                    return spot;
+                }
             }
         }
-        return total;
+        return null;
     }
-    
-    /**
-     * Mark all unpaid fines as paid for a vehicle
-     * (Helper method for processExit)
-     * 
-     * @param plateNumber - Vehicle's plate
-     */
-    private void markFinesAsPaid(String plateNumber) {
-        for (Fine fine : allFines) {
-            if (fine.getPlateNumber().equals(plateNumber) && !fine.isPaid()) {
-                fine.markAsPaid();
-            }
+
+    public static class ExitResult {
+        public final Ticket ticket;
+        public final long hoursStayed;
+        public final double parkingFee;
+        public final Fine fine; // nullable
+
+        public ExitResult(Ticket ticket, long hoursStayed, double parkingFee, Fine fine) {
+            this.ticket = ticket;
+            this.hoursStayed = hoursStayed;
+            this.parkingFee = parkingFee;
+            this.fine = fine;
         }
-    }
-    
-    /**
-     * Get all unpaid fines (for reporting)
-     * (Kong's reports will use this)
-     * 
-     * @return List of unpaid fines
-     */
-    public List<Fine> getUnpaidFines() {
-        List<Fine> unpaidFines = new ArrayList<>();
-        for (Fine fine : allFines) {
-            if (!fine.isPaid()) {
-                unpaidFines.add(fine);
-            }
+
+        public double totalDue() {
+            return parkingFee + (fine == null ? 0 : fine.getAmount());
         }
-        return unpaidFines;
-    }
-    
-    /**
-     * Get ticket for a vehicle
-     * 
-     * @param plateNumber - Vehicle's plate
-     * @return Ticket or null if not found
-     */
-    public Ticket getTicket(String plateNumber) {
-        return activeTickets.get(plateNumber);
-    }
-    
-    /**
-     * Get all active tickets
-     * 
-     * @return Map of active tickets
-     */
-    public Map<String, Ticket> getActiveTickets() {
-        return new HashMap<>(activeTickets);
-    }
-    
-    /**
-     * Get all fines
-     * 
-     * @return List of all fines
-     */
-    public List<Fine> getAllFines() {
-        return new ArrayList<>(allFines);
     }
 }

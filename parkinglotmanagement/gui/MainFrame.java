@@ -1,5 +1,7 @@
 package gui;
 
+import service.AppContext;
+
 import javax.swing.*;
 
 public class MainFrame extends JFrame {
@@ -10,14 +12,14 @@ public class MainFrame extends JFrame {
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         setLocationRelativeTo(null);
 
-        JTabbedPane tabbedPane = new JTabbedPane();
+        AppContext ctx = new AppContext();
 
-        tabbedPane.add("Entry / Exit", new EntryExitPanel());
-        tabbedPane.add("Admin Panel", new AdminPanel());
-        tabbedPane.add("Reports", new ReportPanel());
+        JTabbedPane tabbedPane = new JTabbedPane();
+        tabbedPane.add("Entry / Exit", new EntryExitPanel(ctx));
+        tabbedPane.add("Admin Panel", new AdminPanel(ctx));
+        tabbedPane.add("Reports", new ReportPanel(ctx));
 
         add(tabbedPane);
-
         setVisible(true);
     }
 }

@@ -10,15 +10,19 @@ public class HandicappedVehicle extends Vehicle {
 
     @Override
     public boolean canParkIn(SpotType type) {
-        // Handicapped vehicles can park in ANY spot type
+        // Can park in any spot type
         return true;
+    }
+
+    @Override
+    public String getVehicleType() {
+        return "Handicapped Vehicle";
     }
 
     public boolean hasHandicappedCard() {
         return hasHandicappedCard;
     }
 
-    public void setHasHandicappedCard(boolean hasHandicappedCard) {
-        this.hasHandicappedCard = hasHandicappedCard;
-    }
+    // This vehicle gets special pricing (RM 2/hour) if they have the card
+    // This will be handled in ParkingSpot.getHourlyRate(vehicle)
 }
